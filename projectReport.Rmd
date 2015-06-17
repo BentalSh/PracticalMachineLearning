@@ -1,0 +1,94 @@
+---
+title: "Project report - practical machine learning"
+output: html_document
+---
+
+Our goal in this project is to predict if an activity is being done correctly. We will show that this data can be predicted using random forests.
+
+## Loading the data, the libraries and splitting to train and test
+
+We start by loading the data and the relevant packages
+```{r}
+set.seed(10000)
+theData<-read.csv("pml-training.csv")
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+If we view the data, we will see that while every column contains a non NA and non-empty value, some columns contain very few such columns. As we don't want our classifier to overfit the data, we remove data we don't have about 95% or more of the observations. We then remove the name and time stamps columns, as we don't want our classifier to classify according to that (Those are the 5 first columns).
+```{r}
+noNAs<-theData[,colSums(is.na(theData))/nrow(theData)<0.95]
+noEmpty<-noNAs[,colSums(noNAs=="")/nrow(noNAs)<0.95]
+finalData<-noEmpty[,-(1:6)]
+```
+
+
+We note that the file "pml-testing.csv" contains samples without the classe variable (the variable we try to predict), and therefore it won't be used for the actual testing. We will split our data to training, testing and cross validation. We will pick our model from the one that performs the best on the testing set, and will measure its performance on the validation set.
+```{r}
+inTrain <- createDataPartition(y=finalData$classe, p=0.6, list=FALSE)
+training<-finalData[inTrain,]
+testingAndValidation<-finalData[-inTrain,]
+inTesting <- createDataPartition(y=testingAndValidation$classe, p=0.5, list=FALSE)
+testing<-finalData[-inTesting,]
+validation<-finalData[-inTesting,]
+```
+
+
+## Exploratory analysis
+It can easily be seen that when splitting between classes, some data has very different means and ranges, for example
+```{r}
+par(mfrow=c(2,1))
+boxplot(yaw_belt~as.numeric(classe),data=training)
+boxplot(total_accel_belt~as.numeric(classe),data=training)
+```
+
+We can therefore use a classifier with enough expressive power to determine different conditions and thresholds from which we can determine the classe with high probability.
+
+## Training
+As determined before, the expressiveness of decision tree can work for us. We will therefore use decision tree and random forest (which is a model based on decision tree), and we will pick the better one
+```{r}
+fit<-rpart(classe~.,training)
+res<-predict(fit,testing)
+predictions<-c("A","B","C","D","E")[apply(res, 1, function(x) which(x==max(x)))]
+sum(predictions==testing$classe)/nrow(testing)
+```
+
+Note, the train function works really slowly with random forest. I found out that the one in the randomForest library works much faster.
+
+```{r}
+fit2<-randomForest(classe~.,data=training)
+res2<-predict(fit2,testing)
+predictions2<-res2
+sum(predictions2==testing$classe)/nrow(testing)
+```
+We can see that our second model is way better then the first one (in terms of accuracy).
+We assume that we will get a similiar accuracy for the cross validation set.
+
+```{r}
+cvRes<-predict(fit2,validation)
+predictionsCV<-cvRes
+sum(predictionsCV==validation$classe)/nrow(validation)
+```
+
+## Creating the files
+We start by loading the data as before
+```{r}
+testingData<-read.csv("pml-testing.csv")
+testingNoNAs<-testingData[,colSums(is.na(theData))/nrow(theData)<0.95]
+testingNoEmpty<-testingNoNAs[,colSums(noNAs=="")/nrow(noNAs)<0.95]
+finalTestingData<-testingNoEmpty[,-(1:6)]
+```
+From a test I did before that, I discovered that 3 columns are loaded as integer and not as numeric, so we change them accordingly
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+results<-predict(fit2,finalTestingData)
+pml_write_files(results)
+```
+
